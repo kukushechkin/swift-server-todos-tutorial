@@ -9,7 +9,8 @@ import Tracing
 import Vapor
 
 func configureTelemetry(_ config: ConfigReader) async throws -> (Logger, some Service) {
-    let level = config.scoped(to: "log")
+    let level =
+        config.scoped(to: "log")
         .string(forKey: "level")
         .flatMap { Logger.Level.init(rawValue: $0) } ?? .info
 
@@ -24,22 +25,42 @@ func configureTelemetry(_ config: ConfigReader) async throws -> (Logger, some Se
     let otelMetricsBackend = try OTel.makeMetricsBackend(configuration: otelConfig)
     let otelTracingBackend = try OTel.makeTracingBackend(configuration: otelConfig)
 
-    MetricsSystem.bootstrap(otelMetricsBackend.factory)
-    InstrumentationSystem.bootstrap(otelTracingBackend.factory)
-
     // Fan logs out to both the Vapor console logger and the OTel exporter.
     // The OTel metadata provider attaches `trace_id` and `span_id` from the
     // active span, so logs emitted during a traced request can be correlated
     // with their trace in Grafana.
-    let logger = Logger(label: "SwiftServerTodos", factory: { label in
+    @Sendable
+    func multiplexLogHandler(label: String, metadataProvider: Logger.MetadataProvider) -> MultiplexLogHandler {
         MultiplexLogHandler(
             [
                 ConsoleLogger(label: label, console: Terminal(), level: level),
                 otelLoggingBackend.factory(label),
             ],
-            metadataProvider: OTel.makeLoggingMetadataProvider()
+            metadataProvider: metadataProvider
         )
-    })
+    }
+
+    // Bootstrap the global logging system too, as a fallback for any `Logger`
+    // created without going through the root logger below (for example, by
+    // third-party code). Tag those log lines `scope: global` so they're easy
+    // to tell apart from the ones that flow through the task-local root logger.
+    let otelMetadataProvider = OTel.makeLoggingMetadataProvider()
+    let globalMetadataProvider = Logger.MetadataProvider {
+        var metadata = otelMetadataProvider.get()
+        metadata["scope"] = "global"
+        return metadata
+    }
+    LoggingSystem.bootstrap { label in
+        multiplexLogHandler(label: label, metadataProvider: globalMetadataProvider)
+    }
+
+    MetricsSystem.bootstrap(otelMetricsBackend.factory)
+    InstrumentationSystem.bootstrap(otelTracingBackend.factory)
+
+    let logger = Logger(
+        label: "SwiftServerTodos",
+        factory: { label in multiplexLogHandler(label: label, metadataProvider: otelMetadataProvider) }
+    )
 
     // Collect system-level metrics (CPU, memory, file descriptors, etc.).
     let systemMetricsMonitor = SystemMetricsMonitor(
@@ -54,7 +75,9 @@ func configureTelemetry(_ config: ConfigReader) async throws -> (Logger, some Se
             otelMetricsBackend.service,
             otelTracingBackend.service,
             systemMetricsMonitor,
-        ], logger: logger)
+        ],
+        logger: logger
+    )
 
     return (logger, telemetryService)
 }

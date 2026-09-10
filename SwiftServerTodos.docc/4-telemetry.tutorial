@@ -46,12 +46,14 @@
 
                 The function creates OpenTelemetry backends for logs, metrics, and tracing that export
                 data via OTLP. It registers the metrics and tracing backends globally to set up Vapor
-                tracing later. It builds the logger directly with a `MultiplexLogHandler` so every log
-                line fans out to both the Vapor console logger and the OTel exporter, and installs an
-                OTel metadata provider so logs emitted during a traced request carry `trace_id` and
-                `span_id` from the active span. Building the logger this way, instead of bootstrapping
-                the global logging system, keeps the logger a local value that the caller passes down
-                explicitly. It also starts a `SystemMetricsMonitor` that automatically collects CPU,
+                tracing later. It also bootstraps the global logging system with the same
+                `MultiplexLogHandler` chain, as a fallback for any `Logger` created without going
+                through the root logger, for example by third-party code. It tags those log lines
+                `scope: global` so they're easy to tell apart from the ones that flow through the
+                task-local root logger built alongside it. Both handlers fan every log line out to
+                the Vapor console logger and the OTel exporter, and install an OTel metadata provider
+                so logs emitted during a traced request carry `trace_id` and `span_id` from the
+                active span. It also starts a `SystemMetricsMonitor` that automatically collects CPU,
                 memory, and process-level metrics. All OTel services are combined into a `ServiceGroup`
                 for coordinated lifecycle management.
 
