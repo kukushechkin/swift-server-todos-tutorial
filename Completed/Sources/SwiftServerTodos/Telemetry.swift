@@ -29,29 +29,22 @@ func configureTelemetry(_ config: ConfigReader) async throws -> (Logger, some Se
     // The OTel metadata provider attaches `trace_id` and `span_id` from the
     // active span, so logs emitted during a traced request can be correlated
     // with their trace in Grafana.
-    @Sendable
-    func multiplexLogHandler(label: String, metadataProvider: Logger.MetadataProvider) -> MultiplexLogHandler {
-        MultiplexLogHandler(
-            [
-                ConsoleLogger(label: label, console: Terminal(), level: level),
-                otelLoggingBackend.factory(label),
-            ],
-            metadataProvider: metadataProvider
-        )
-    }
+    let otelMetadataProvider = OTel.makeLoggingMetadataProvider()
 
     // Bootstrap the global logging system too, as a fallback for any `Logger`
     // created without going through the root logger below (for example, by
     // third-party code). Tag those log lines `scope: global` so they're easy
     // to tell apart from the ones that flow through the task-local root logger.
-    let otelMetadataProvider = OTel.makeLoggingMetadataProvider()
-    let globalMetadataProvider = Logger.MetadataProvider {
-        var metadata = otelMetadataProvider.get()
-        metadata["scope"] = "global"
-        return metadata
-    }
     LoggingSystem.bootstrap { label in
-        multiplexLogHandler(label: label, metadataProvider: globalMetadataProvider)
+        var handler = MultiplexLogHandler(
+            [
+                ConsoleLogger(label: label, console: Terminal(), level: level),
+                otelLoggingBackend.factory(label),
+            ],
+            metadataProvider: otelMetadataProvider
+        )
+        handler[metadataKey: "scope"] = "global"
+        return handler
     }
 
     MetricsSystem.bootstrap(otelMetricsBackend.factory)
@@ -59,7 +52,15 @@ func configureTelemetry(_ config: ConfigReader) async throws -> (Logger, some Se
 
     let logger = Logger(
         label: "SwiftServerTodos",
-        factory: { label in multiplexLogHandler(label: label, metadataProvider: otelMetadataProvider) }
+        factory: { label in
+            MultiplexLogHandler(
+                [
+                    ConsoleLogger(label: label, console: Terminal(), level: level),
+                    otelLoggingBackend.factory(label),
+                ],
+                metadataProvider: otelMetadataProvider
+            )
+        }
     )
 
     // Collect system-level metrics (CPU, memory, file descriptors, etc.).
