@@ -75,8 +75,7 @@ func configureTelemetry(_ config: ConfigReader) async throws -> (Logger, some Se
             otelMetricsBackend.service,
             otelTracingBackend.service,
             systemMetricsMonitor,
-        ],
-        logger: logger
+        ]
     )
 
     return (logger, telemetryService)
