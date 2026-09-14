@@ -44,18 +44,19 @@
             @Step {
                 **Expand** the `configureTelemetry` function to set up OpenTelemetry.
 
-                The function creates OpenTelemetry backends for logs, metrics, and tracing that export
-                data via OTLP. It registers the metrics and tracing backends globally to set up Vapor
-                tracing later. It also bootstraps the global logging system with the same
-                `MultiplexLogHandler` chain, as a fallback for any `Logger` created without going
-                through the root logger, for example by third-party code. It tags those log lines
-                `scope: global` so they're easy to tell apart from the ones that flow through the
-                task-local root logger built alongside it. Both handlers fan every log line out to
-                the Vapor console logger and the OTel exporter, and install an OTel metadata provider
-                so logs emitted during a traced request carry `trace_id` and `span_id` from the
-                active span. It also starts a `SystemMetricsMonitor` that automatically collects CPU,
-                memory, and process-level metrics. All OTel services are combined into a `ServiceGroup`
-                for coordinated lifecycle management.
+                The function creates the OTel logging backend first, then builds a root `Logger` from
+                a single log handler factory that fans every log line out to the Vapor console logger
+                and the OTel exporter, installing an OTel metadata provider so logs emitted during a
+                traced request carry `trace_id` and `span_id` from the active span. That same factory
+                bootstraps the global logging system, as a fallback for any `Logger` created without
+                going through the root logger, for example by third-party code, tagging those log
+                lines `scope: global` so they're easy to tell apart. Reusing one factory for both
+                keeps them from drifting out of sync. The root logger is then set as OTel's own
+                diagnostic logger, so problems exporting metrics and traces (created next) are logged
+                through OTLP too, not just to the console. It also registers the metrics and tracing
+                backends globally to set up Vapor tracing later, and starts a `SystemMetricsMonitor`
+                that automatically collects CPU, memory, and process-level metrics. All OTel services
+                are combined into a `ServiceGroup` for coordinated lifecycle management.
 
                 @Code(name: "Telemetry.swift", file: 4-telemetry.1.swift, previousFile: 4-telemetry.0.swift)
             }
